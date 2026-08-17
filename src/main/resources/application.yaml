@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: svc-integration-hub
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb+srv://Dev_service_User:bgplVqv7SaeQqOV9@g3secaidevtest.nr7rokz.mongodb.net/}
+      database: ${MONGODB_DATABASE:G3_SecAi_DB}
+    redis:
+      host: ${REDIS_HOST:13.202.16.192}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:g3sec.ai}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_MAX_ACTIVE:32}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: ${REDIS_POOL_MAX_WAIT:2000ms}
+
+jwt:
+  secret: ${JWT_SECRET:G3_SecAi_JWT_Secret_2025}
+
+platform:
+  masterDb: ${PLATFORM_MASTER_DB:G3_SecAi_DB}
+
+endpoint:
+  open_endpoints: /health,/api/v1/integration-hub/health
+
+credential:
+  encryption:
+    key: ${CREDENTIAL_ENCRYPTION_KEY:G3SecAiRedisKey2025EncryptData!!}
+
+server:
+  port: ${SERVER_PORT:8098}
+  address: 0.0.0.0
+
+communication:
+  service:
+    url: ${COMMUNICATION_SERVICE_URL:https://dev.g3sec.ai/communication-service}
+
+integration:
+  scheduler:
+    enabled: ${INTEGRATION_SCHEDULER_ENABLED:true}
+    cron: ${INTEGRATION_SCHEDULER_CRON:0 */1 * * * *}
+  sync:
+    default-batch-size: 100
+    max-batch-size: 500
+    max-rows-without-pagination: 2000
+    lock-ttl-seconds: 900
+  discovery:
+    resource-ttl-hours: 24
+    field-ttl-hours: 24
+    capability-ttl-hours: 6
+    sample-limit: 5
