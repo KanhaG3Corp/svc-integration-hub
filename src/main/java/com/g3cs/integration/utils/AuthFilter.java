@@ -138,11 +138,11 @@ public class AuthFilter extends OncePerRequestFilter {
             if (!Boolean.TRUE.equals(session.getBoolean("active"))) {
                 return SessionValidationResult.invalid();
             }
-            String sessionToken = session.getString("accessToken");
+            String sessionToken = session.getString("access_token");
             if (!token.equals(sessionToken)) {
                 return SessionValidationResult.invalid();
             }
-            Date expiresAtDate = session.getDate("expiresAt");
+            Date expiresAtDate = session.getDate("expires_at");
             if (expiresAtDate != null && expiresAtDate.toInstant().isBefore(Instant.now())) {
                 return SessionValidationResult.invalid();
             }
