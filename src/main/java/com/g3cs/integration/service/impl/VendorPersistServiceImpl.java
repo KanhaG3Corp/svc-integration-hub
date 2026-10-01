@@ -1,26 +1,27 @@
 package com.g3cs.integration.service.impl;
 
-import com.g3cs.integration.common.exception.RecordProcessingException;
-import com.g3cs.integration.common.message.MessageCode;
+import com.g3cs.integration.catalog.TprmModuleCatalog;
 import com.g3cs.integration.common.mongo.AuditSupport;
 import com.g3cs.integration.model.EntityIdentityMapDocument;
 import com.g3cs.integration.model.VendorMaster;
 import com.g3cs.integration.service.SequenceGeneratorService;
 import com.g3cs.integration.service.VendorPersistService;
 import com.g3cs.integration.tenant.TenantContext;
-import com.g3cs.integration.utils.UrlSupport;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
+/**
+ * Test persist into vendor_master_test — no uniqueness / required-field validation.
+ */
 @Service
 public class VendorPersistServiceImpl implements VendorPersistService {
+
+    private static final String COLLECTION = TprmModuleCatalog.COLLECTION_VENDOR_MASTER_TEST;
 
     private final MongoTemplate mongoTemplate;
     private final SequenceGeneratorService sequenceGeneratorService;
@@ -37,29 +38,18 @@ public class VendorPersistServiceImpl implements VendorPersistService {
         if (map != null) {
             VendorMaster existing = mongoTemplate.findOne(
                     Query.query(Criteria.where("vendor_id").is(map.getTprmRecordId()).and("is_deleted").ne(true)),
-                    VendorMaster.class);
+                    VendorMaster.class,
+                    COLLECTION);
             if (existing == null) {
-                existing = mongoTemplate.findById(map.getTprmRecordId(), VendorMaster.class);
+                existing = mongoTemplate.findById(map.getTprmRecordId(), VendorMaster.class, COLLECTION);
             }
             if (existing != null) {
-                applyMappedFields(existing, transformed, false);
+                applyMappedFields(existing, transformed);
                 existing.setUpdatedBy(TenantContext.getUserId());
                 existing.setUpdatedDt(Instant.now());
-                mongoTemplate.save(existing);
+                mongoTemplate.save(existing, COLLECTION);
                 return new UpsertResult(false, existing.getVendorId());
             }
-        }
-
-        String vendorName = asText(transformed.get("vendorName"));
-        if (vendorName == null) {
-            throw new RecordProcessingException(MessageCode.VALIDATION_FAILED);
-        }
-        if (nameExists(vendorName, null)) {
-            throw new RecordProcessingException(MessageCode.VENDOR_NAME_EXISTS);
-        }
-        String website = asText(transformed.get("companyWebsite"));
-        if (website != null && websiteExists(website, null)) {
-            throw new RecordProcessingException(MessageCode.VENDOR_WEBSITE_EXISTS);
         }
 
         VendorMaster vendor = new VendorMaster();
@@ -74,15 +64,15 @@ public class VendorPersistServiceImpl implements VendorPersistService {
         vendor.setCreatedDt(Instant.now());
         vendor.setUpdatedBy(TenantContext.getUserId());
         vendor.setUpdatedDt(Instant.now());
-        applyMappedFields(vendor, transformed, true);
-        mongoTemplate.save(vendor);
+        applyMappedFields(vendor, transformed);
+        mongoTemplate.save(vendor, COLLECTION);
 
         EntityIdentityMapDocument identity = EntityIdentityMapDocument.builder()
                 .tenantId(TenantContext.getTenantId())
                 .integrationId(integrationId)
                 .remoteResourceKey(remoteResourceKey)
                 .externalId(externalId)
-                .tprmModuleKey("vendor_master")
+                .tprmModuleKey(TprmModuleCatalog.VENDOR_MASTER_TEST)
                 .tprmRecordId(vendor.getVendorId())
                 .build();
         AuditSupport.onCreate(identity);
@@ -90,85 +80,50 @@ public class VendorPersistServiceImpl implements VendorPersistService {
         return new UpsertResult(true, vendor.getVendorId());
     }
 
-    @SuppressWarnings("unchecked")
-    private void applyMappedFields(VendorMaster vendor, Map<String, Object> transformed, boolean insert) {
-        if (transformed.get("vendorName") != null) {
+    private void applyMappedFields(VendorMaster vendor, Map<String, Object> transformed) {
+        if (transformed == null || transformed.isEmpty()) {
+            return;
+        }
+        if (transformed.containsKey("vendorName")) {
             vendor.setVendorName(asText(transformed.get("vendorName")));
         }
-        if (transformed.get("companyWebsite") != null) {
+        if (transformed.containsKey("companyWebsite")) {
             vendor.setCompanyWebsite(asText(transformed.get("companyWebsite")));
         }
-        if (transformed.get("email") != null) {
+        if (transformed.containsKey("email")) {
             vendor.setEmail(asText(transformed.get("email")));
         }
-        if (transformed.get("phoneNo") != null) {
-            vendor.setPhoneNo(asNumber(transformed.get("phoneNo")));
+        if (transformed.containsKey("phoneNo")) {
+            // Model field is Number; store numeric when possible, otherwise leave unset.
+            Number phone = asNumber(transformed.get("phoneNo"));
+            if (phone != null) {
+                vendor.setPhoneNo(phone);
+            } else {
+                String phoneText = asText(transformed.get("phoneNo"));
+                if (phoneText != null) {
+                    vendor.setRemark(appendNote(vendor.getRemark(), "phoneNo=" + phoneText));
+                }
+            }
         }
-        if (transformed.get("address") != null) {
+        if (transformed.containsKey("address")) {
             vendor.setAddress(asText(transformed.get("address")));
         }
-        if (transformed.get("location") != null) {
+        if (transformed.containsKey("location")) {
             vendor.setLocation(asText(transformed.get("location")));
         }
-        if (transformed.get("vendorCategory") != null) {
-            vendor.setVendorCategory(asText(transformed.get("vendorCategory")));
-        }
-        if (transformed.get("businessUnit") != null) {
-            vendor.setBusinessUnit(asText(transformed.get("businessUnit")));
-        }
-        if (transformed.get("status") != null) {
+        if (transformed.containsKey("status")) {
             vendor.setStatus(asText(transformed.get("status")));
         }
-        if (transformed.get("remark") != null) {
+        if (transformed.containsKey("remark")) {
             vendor.setRemark(asText(transformed.get("remark")));
         }
-        if (transformed.get("entityIds") instanceof List<?> list) {
-            vendor.setEntityIds(list.stream().map(String::valueOf).toList());
-        }
-        if (transformed.get("regionIds") instanceof List<?> list) {
-            vendor.setRegionIds(list.stream().map(String::valueOf).toList());
-        }
-        if (transformed.get("natureOfEngagement") instanceof List<?> list) {
-            vendor.setNatureOfEngagement(list.stream().map(String::valueOf).toList());
-        }
-        if (transformed.get("businessFunctions") instanceof List<?> list) {
-            vendor.setBusinessFunctions(list.stream().map(String::valueOf).toList());
-        }
-        if (!insert) {
-            if (vendor.getVendorName() != null && nameExists(vendor.getVendorName(), vendor.getVendorId())) {
-                throw new RecordProcessingException(MessageCode.VENDOR_NAME_EXISTS);
-            }
-            if (vendor.getCompanyWebsite() != null && websiteExists(vendor.getCompanyWebsite(), vendor.getVendorId())) {
-                throw new RecordProcessingException(MessageCode.VENDOR_WEBSITE_EXISTS);
-            }
-        }
     }
 
-    private boolean nameExists(String vendorName, String excludeVendorId) {
-        Criteria criteria = new Criteria().andOperator(
-                Criteria.where("vendor_name").regex("^" + Pattern.quote(vendorName.trim()) + "$", "i"),
-                Criteria.where("is_deleted").ne(true)
-        );
-        if (excludeVendorId != null) {
-            criteria = new Criteria().andOperator(criteria, Criteria.where("vendor_id").ne(excludeVendorId));
+    private String appendNote(String existing, String note) {
+        if (existing == null || existing.isBlank()) {
+            return note;
         }
-        return mongoTemplate.exists(Query.query(criteria), VendorMaster.class);
-    }
-
-    private boolean websiteExists(String website, String excludeVendorId) {
-        String normalized = UrlSupport.normalizeWebsite(website);
-        if (normalized == null) {
-            return false;
-        }
-        Criteria criteria = new Criteria().andOperator(
-                Criteria.where("company_website").regex(Pattern.quote(normalized), "i"),
-                Criteria.where("is_deleted").ne(true)
-        );
-        if (excludeVendorId != null) {
-            criteria = new Criteria().andOperator(criteria, Criteria.where("vendor_id").ne(excludeVendorId));
-        }
-        List<VendorMaster> matches = mongoTemplate.find(Query.query(criteria), VendorMaster.class);
-        return matches.stream().anyMatch(v -> normalized.equals(UrlSupport.normalizeWebsite(v.getCompanyWebsite())));
+        return existing + "; " + note;
     }
 
     private EntityIdentityMapDocument findIdentity(String integrationId, String remoteResourceKey, String externalId) {

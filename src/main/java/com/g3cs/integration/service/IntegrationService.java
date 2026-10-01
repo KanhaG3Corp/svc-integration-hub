@@ -25,6 +25,8 @@ public interface IntegrationService {
 
     IntegrationDocument deactivate(String integrationId);
 
+    IntegrationDocument cancel(String integrationId);
+
     Map<String, Object> preview(String integrationId);
 
     IntegrationExecutionDocument sync(String integrationId);

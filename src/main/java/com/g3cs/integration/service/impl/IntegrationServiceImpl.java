@@ -11,7 +11,6 @@ import com.g3cs.integration.common.enums.IntegrationOperation;
 import com.g3cs.integration.common.enums.IntegrationStatus;
 import com.g3cs.integration.common.enums.SyncDirection;
 import com.g3cs.integration.common.enums.SyncMode;
-import com.g3cs.integration.common.enums.TransformMode;
 import com.g3cs.integration.common.exception.BusinessException;
 import com.g3cs.integration.common.message.MessageCode;
 import com.g3cs.integration.common.mongo.AuditSupport;
@@ -91,7 +90,7 @@ public class IntegrationServiceImpl implements IntegrationService {
                 .description(request.getDescription())
                 .connectionId(request.getConnectionId())
                 .applicationId(null)
-                .tprmModuleKey(request.getTprmModuleKey() == null ? TprmModuleCatalog.VENDOR_MASTER : request.getTprmModuleKey())
+                .tprmModuleKey(request.getTprmModuleKey() == null ? TprmModuleCatalog.VENDOR_MASTER_TEST : request.getTprmModuleKey())
                 .remoteResourceKey(request.getRemoteResourceKey())
                 .operation(request.getOperation() == null ? IntegrationOperation.UPSERT : request.getOperation())
                 .direction(request.getDirection() == null ? SyncDirection.INBOUND : request.getDirection())
@@ -120,6 +119,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Override
     public IntegrationDocument update(String integrationId, IntegrationUpsertRequest request) {
         IntegrationDocument document = require(integrationId);
+        assertNotDisabled(document);
         assertUniqueName(request.getName(), integrationId);
         requireConnectionActive(request.getConnectionId());
         document.setName(request.getName().trim());
@@ -191,6 +191,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Override
     public IntegrationDocument saveMapping(String integrationId, List<IntegrationDocument.FieldMapping> mapping) {
         IntegrationDocument document = require(integrationId);
+        assertNotDisabled(document);
         document.setMapping(mapping);
         document.setMappingVersion(document.getMappingVersion() == null ? 1 : document.getMappingVersion() + 1);
         AuditSupport.onUpdate(document);
@@ -201,6 +202,7 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Override
     public IntegrationDocument activate(String integrationId) {
         IntegrationDocument document = require(integrationId);
+        assertNotDisabled(document);
         requireConnectionActive(document.getConnectionId());
         assertMappingComplete(document);
         document.setStatus(IntegrationStatus.ACTIVE);
@@ -215,10 +217,28 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Override
     public IntegrationDocument deactivate(String integrationId) {
         IntegrationDocument document = require(integrationId);
+        assertNotDisabled(document);
         document.setStatus(IntegrationStatus.PAUSED);
         document.setNextRunAt(null);
         AuditSupport.onUpdate(document);
         mongoTemplate.save(document);
+        return document;
+    }
+
+    @Override
+    public IntegrationDocument cancel(String integrationId) {
+        IntegrationDocument document = require(integrationId);
+        if (document.getStatus() != IntegrationStatus.DRAFT) {
+            throw new BusinessException(MessageCode.INTEGRATION_CANCEL_FAILED);
+        }
+        IntegrationStatus previous = document.getStatus();
+        document.setStatus(IntegrationStatus.DISABLED);
+        document.setNextRunAt(null);
+        AuditSupport.onUpdate(document);
+        mongoTemplate.save(document);
+        auditService.record("INTEGRATION", document.getIntegrationId(), previous.name(), IntegrationStatus.DISABLED.name(),
+                "INTEGRATION_CANCELLED",
+                MessageCode.INTEGRATION_CANCELLED.resolve(Map.of("name", document.getName())), Map.of());
         return document;
     }
 
@@ -308,17 +328,21 @@ public class IntegrationServiceImpl implements IntegrationService {
         syncEngineService.retryRecords(document, records);
     }
 
+    private void assertNotDisabled(IntegrationDocument document) {
+        if (document.getStatus() == IntegrationStatus.DISABLED) {
+            throw new BusinessException(MessageCode.INTEGRATION_DISABLED);
+        }
+    }
+
     private void assertMappingComplete(IntegrationDocument document) {
         if (document.getRemoteResourceKey() == null || document.getRemoteResourceKey().isBlank()) {
             throw new BusinessException(MessageCode.INTEGRATION_ACTIVATE_FAILED);
         }
         List<IntegrationDocument.FieldMapping> mapping = document.getMapping() == null
                 ? List.of() : document.getMapping();
-        boolean vendorName = mapping.stream().anyMatch(m -> m.isIncluded()
-                && "vendorName".equals(m.getTprmField()) && m.getRemoteField() != null && !m.getRemoteField().isBlank());
-        boolean entity = mapping.stream().anyMatch(m -> m.isIncluded()
-                && m.getTransformMode() == TransformMode.RESOLVE_ENTITY);
-        if (!vendorName || !entity) {
+        boolean anyMapped = mapping.stream().anyMatch(m -> m.isIncluded()
+                && m.getRemoteField() != null && !m.getRemoteField().isBlank());
+        if (!anyMapped) {
             throw new BusinessException(MessageCode.INTEGRATION_ACTIVATE_FAILED);
         }
     }

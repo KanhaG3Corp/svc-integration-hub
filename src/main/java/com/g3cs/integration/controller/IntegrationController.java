@@ -6,6 +6,7 @@ import com.g3cs.integration.common.dto.PagedResponseDto;
 import com.g3cs.integration.common.message.MessageCode;
 import com.g3cs.integration.dto.IntegrationUpsertRequest;
 import com.g3cs.integration.dto.RetryFailedRecordsRequest;
+import com.g3cs.integration.dto.SaveMappingRequest;
 import com.g3cs.integration.model.IntegrationDocument;
 import com.g3cs.integration.model.IntegrationExecutionDocument;
 import com.g3cs.integration.model.IntegrationFailedRecordDocument;
@@ -20,7 +21,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -62,9 +62,9 @@ public class IntegrationController {
     @PostMapping("/{integrationId}/mapping")
     public ApiResponseDto<IntegrationDocument> mapping(
             @PathVariable String integrationId,
-            @RequestBody List<IntegrationDocument.FieldMapping> mapping) {
+            @RequestBody SaveMappingRequest request) {
         return ApiResponseDto.success(MessageCode.SUCCESS.template(),
-                integrationService.saveMapping(integrationId, mapping));
+                integrationService.saveMapping(integrationId, request.getMapping()));
     }
 
     @PostMapping("/{integrationId}/preview")
@@ -80,6 +80,13 @@ public class IntegrationController {
     @PostMapping("/{integrationId}/deactivate")
     public ApiResponseDto<IntegrationDocument> deactivate(@PathVariable String integrationId) {
         return ApiResponseDto.success(MessageCode.SUCCESS.template(), integrationService.deactivate(integrationId));
+    }
+
+    @PostMapping("/{integrationId}/cancel")
+    public ApiResponseDto<IntegrationDocument> cancel(@PathVariable String integrationId) {
+        IntegrationDocument cancelled = integrationService.cancel(integrationId);
+        return ApiResponseDto.success(
+                MessageCode.INTEGRATION_CANCELLED.resolve(Map.of("name", cancelled.getName())), cancelled);
     }
 
     @PostMapping("/{integrationId}/sync")
